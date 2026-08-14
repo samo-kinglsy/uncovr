@@ -1,19 +1,16 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useColorScheme } from '@/hooks/use-color-scheme';
-import { Colors } from '@/constants/theme';
+
+import { borderRadii, colors, spacing, typography } from '@/constants/theme';
 
 export default function HomeScreen() {
-  const colorScheme = useColorScheme();
-  const theme = Colors[colorScheme ?? 'light'];
-
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <Text style={[styles.title, { color: theme.text }]}>UNCOVR</Text>
-        <Text style={[styles.subtitle, { color: theme.text }]}>
-          Discover the benefits you already have.
-        </Text>
+        <View style={styles.card}>
+          <Text style={styles.title}>UNCOVR</Text>
+          <Text style={styles.subtitle}>Discover the benefits you already have.</Text>
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -21,23 +18,38 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: {
+    backgroundColor: colors.primaryBlack,
     flex: 1,
   },
   content: {
+    alignItems: 'center',
     flex: 1,
     justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  card: {
     alignItems: 'center',
-    paddingHorizontal: 24,
+    backgroundColor: colors.secondaryBlack,
+    borderRadius: borderRadii.xl,
+    maxWidth: 420,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xxl,
+    width: '100%',
   },
   title: {
-    fontSize: 40,
-    fontWeight: 'bold',
-    marginBottom: 16,
+    color: colors.gold,
+    fontSize: typography.sizes.display,
+    fontWeight: typography.weights.bold,
+    lineHeight: typography.lineHeights.display,
+    marginBottom: spacing.md,
     textAlign: 'center',
   },
   subtitle: {
-    fontSize: 18,
+    color: colors.warmOffWhite,
+    fontSize: typography.sizes.subtitle,
+    fontWeight: typography.weights.regular,
+    lineHeight: typography.lineHeights.subtitle,
+    maxWidth: 300,
     textAlign: 'center',
-    lineHeight: 24,
   },
 });
