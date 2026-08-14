@@ -16,8 +16,8 @@ export default function MainLayout() {
         },
       }}>
       <Tabs.Screen name="ask-uncovr" options={{ title: 'Ask UNCOVR' }} />
-      <Tabs.Screen name="benefits-wallet" options={{ title: 'Benefits Wallet' }} />
-      <Tabs.Screen name="my-cards" options={{ title: 'My Cards' }} />
+      <Tabs.Screen name="benefits-wallet" options={{ title: 'Benefits' }} />
+      <Tabs.Screen name="my-cards" options={{ title: 'My Wallet' }} />
       <Tabs.Screen name="settings" options={{ href: null }} />
     </Tabs>
   );

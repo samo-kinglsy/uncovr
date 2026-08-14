@@ -129,7 +129,7 @@ export default function BenefitsWalletScreen() {
         </View>
 
         <View style={styles.headingBlock}>
-          <Text style={styles.title}>Benefits Wallet</Text>
+          <Text style={styles.title}>Benefits</Text>
         </View>
 
         <View style={styles.summaryCard}>

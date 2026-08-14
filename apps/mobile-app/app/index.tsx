@@ -1,5 +1,8 @@
-import { Redirect } from 'expo-router';
+import { Redirect, useLocalSearchParams } from 'expo-router';
 
 export default function DevelopmentLaunchRoute() {
-  return <Redirect href="/province-territory" />;
+  const { onboardingComplete } = useLocalSearchParams<{ onboardingComplete?: string }>();
+
+  // The query flag temporarily lets onboarding completion pass through `/` into the main app.
+  return <Redirect href={onboardingComplete === 'true' ? '/ask-uncovr' : '/province-territory'} />;
 }

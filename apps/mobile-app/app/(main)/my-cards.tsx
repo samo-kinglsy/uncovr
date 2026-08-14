@@ -115,7 +115,7 @@ export default function MyCardsScreen() {
         </View>
 
         <View style={styles.titleRow}>
-          <Text style={styles.title}>My Cards</Text>
+          <Text style={styles.title}>My Wallet</Text>
           <View style={styles.cardCount}>
             <Text style={styles.cardCountText}>{ownedCards.length} added</Text>
           </View>
