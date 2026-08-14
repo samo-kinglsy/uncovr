@@ -1,0 +1,24 @@
+import { Tabs } from 'expo-router';
+
+import { colors } from '@/constants/theme';
+
+export default function MainLayout() {
+  return (
+    <Tabs
+      initialRouteName="index"
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: colors.gold,
+        tabBarInactiveTintColor: colors.warmOffWhite,
+        tabBarStyle: {
+          backgroundColor: colors.secondaryBlack,
+          borderTopColor: colors.secondaryBlack,
+        },
+      }}>
+      <Tabs.Screen name="index" options={{ title: 'Ask UNCOVR' }} />
+      <Tabs.Screen name="benefits-wallet" options={{ title: 'Benefits Wallet' }} />
+      <Tabs.Screen name="my-cards" options={{ title: 'My Cards' }} />
+      <Tabs.Screen name="settings" options={{ href: null }} />
+    </Tabs>
+  );
+}
