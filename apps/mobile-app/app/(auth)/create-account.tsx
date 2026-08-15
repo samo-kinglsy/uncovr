@@ -1,5 +1,5 @@
-import { ScreenPlaceholder } from '@/components/screen-placeholder';
+import { AuthFormScreen } from '@/components/auth-form-screen';
 
 export default function CreateAccountScreen() {
-  return <ScreenPlaceholder title="Create account" />;
+  return <AuthFormScreen mode="create-account" />;
 }
