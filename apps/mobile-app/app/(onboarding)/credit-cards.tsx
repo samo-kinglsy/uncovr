@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { borderRadii, colors, spacing, typography } from '@/constants/theme';
+import { useAuth } from '@/providers/auth-provider';
 
 type Card = {
   id: string;
@@ -52,6 +53,7 @@ const cards: Card[] = [
 
 export default function CreditCardsScreen() {
   const router = useRouter();
+  const { completeOnboarding } = useAuth();
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -75,7 +77,8 @@ export default function CreditCardsScreen() {
   }
 
   function viewBenefitsWallet() {
-    router.replace({ pathname: '/', params: { onboardingComplete: 'true' } });
+    completeOnboarding();
+    router.replace('/ask-uncovr');
   }
 
   return (
@@ -181,7 +184,7 @@ export default function CreditCardsScreen() {
               selectedCards.length === 0 && styles.primaryButtonDisabled,
               pressed && selectedCards.length > 0 && styles.primaryButtonPressed,
             ]}>
-            <Text style={styles.primaryButtonText}>View my Benefits Wallet</Text>
+            <Text style={styles.primaryButtonText}>Uncover my benefits</Text>
             <Ionicons color={colors.primaryBlack} name="arrow-forward" size={19} />
           </Pressable>
         </View>

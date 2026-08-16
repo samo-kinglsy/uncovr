@@ -1,8 +1,30 @@
-import { Redirect, useLocalSearchParams } from 'expo-router';
+import { Redirect } from 'expo-router';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
-export default function DevelopmentLaunchRoute() {
-  const { onboardingComplete } = useLocalSearchParams<{ onboardingComplete?: string }>();
+import { colors } from '@/constants/theme';
+import { useAuth } from '@/providers/auth-provider';
 
-  // The query flag temporarily lets onboarding completion pass through `/` into the main app.
-  return <Redirect href={onboardingComplete === 'true' ? '/ask-uncovr' : '/create-account'} />;
+export default function AppEntryRoute() {
+  const { isLoading, needsOnboarding, session } = useAuth();
+
+  if (isLoading) {
+    return (
+      <View style={styles.loadingScreen}>
+        <ActivityIndicator color={colors.gold} />
+      </View>
+    );
+  }
+
+  if (!session) return <Redirect href="/create-account" />;
+
+  return <Redirect href={needsOnboarding ? '/province-territory' : '/ask-uncovr'} />;
 }
+
+const styles = StyleSheet.create({
+  loadingScreen: {
+    alignItems: 'center',
+    backgroundColor: colors.offWhite,
+    flex: 1,
+    justifyContent: 'center',
+  },
+});

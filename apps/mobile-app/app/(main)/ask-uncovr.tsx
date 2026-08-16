@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { borderRadii, colors, spacing, typography } from '@/constants/theme';
+import { useAuth } from '@/providers/auth-provider';
 
 const popularQuestions = [
   'Rental car insurance',
@@ -29,9 +30,11 @@ const benefitCategories = [
 ] as const;
 
 export default function AskUncovrScreen() {
+  const { signOut } = useAuth();
   const [question, setQuestion] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [showAnswer, setShowAnswer] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const hasQuestion = question.trim().length > 0;
 
   function submitQuestion() {
@@ -40,6 +43,14 @@ export default function AskUncovrScreen() {
     Keyboard.dismiss();
     setIsFocused(false);
     setShowAnswer(true);
+  }
+
+  async function handleDevelopmentSignOut() {
+    if (isSigningOut) return;
+
+    setIsSigningOut(true);
+    await signOut();
+    setIsSigningOut(false);
   }
 
   return (
@@ -56,7 +67,23 @@ export default function AskUncovrScreen() {
             <Text style={styles.wordmark}>
               UNC<Text style={styles.wordmarkAccent}>O</Text>VR
             </Text>
-            <Ionicons color={colors.primaryBlack} name="notifications-outline" size={22} />
+            <View style={styles.headerActions}>
+              {__DEV__ && (
+                <Pressable
+                  accessibilityLabel="Development sign out"
+                  accessibilityRole="button"
+                  disabled={isSigningOut}
+                  onPress={handleDevelopmentSignOut}
+                  style={({ pressed }) => [
+                    styles.developmentSignOut,
+                    pressed && styles.developmentSignOutPressed,
+                  ]}>
+                  <Text style={styles.developmentLabel}>DEV</Text>
+                  <Ionicons color={colors.primaryBlack} name="log-out-outline" size={18} />
+                </Pressable>
+              )}
+              <Ionicons color={colors.primaryBlack} name="notifications-outline" size={22} />
+            </View>
           </View>
 
           {!isFocused && !hasQuestion && !showAnswer && (
@@ -267,6 +294,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     minHeight: 40,
+  },
+  headerActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  developmentSignOut: {
+    alignItems: 'center',
+    borderColor: colors.warmOffWhite,
+    borderRadius: borderRadii.full,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.xs,
+    minHeight: 36,
+    paddingHorizontal: spacing.sm,
+  },
+  developmentSignOutPressed: {
+    opacity: 0.6,
+  },
+  developmentLabel: {
+    color: colors.secondaryBlack,
+    fontSize: 9,
+    fontWeight: typography.weights.bold,
+    letterSpacing: 0.5,
   },
   wordmark: {
     color: colors.primaryBlack,

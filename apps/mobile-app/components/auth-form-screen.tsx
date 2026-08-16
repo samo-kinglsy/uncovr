@@ -2,6 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Link, useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -14,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { borderRadii, colors, spacing, typography } from '@/constants/theme';
+import { useAuth } from '@/providers/auth-provider';
 
 type AuthMode = 'create-account' | 'sign-in';
 
@@ -25,11 +27,15 @@ const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function AuthFormScreen({ mode }: AuthFormScreenProps) {
   const router = useRouter();
+  const { createAccount, signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [emailTouched, setEmailTouched] = useState(false);
   const [confirmPasswordTouched, setConfirmPasswordTouched] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAwaitingEmailConfirmation, setIsAwaitingEmailConfirmation] = useState(false);
 
   const isCreateAccount = mode === 'create-account';
   const normalizedEmail = email.trim();
@@ -38,14 +44,39 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
   const formIsComplete =
     emailIsValid && password.length > 0 && (!isCreateAccount || (confirmPassword.length > 0 && passwordsMatch));
 
-  function submit() {
+  async function submit() {
+    if (isSubmitting) return;
+
     if (!formIsComplete) {
       setEmailTouched(true);
       setConfirmPasswordTouched(true);
       return;
     }
 
-    router.replace(isCreateAccount ? '/province-territory' : '/ask-uncovr');
+    setAuthError(null);
+    setIsSubmitting(true);
+
+    const result = isCreateAccount
+      ? await createAccount(normalizedEmail, password)
+      : await signIn(normalizedEmail, password);
+
+    setIsSubmitting(false);
+
+    if (result.error) {
+      setAuthError(result.error);
+      return;
+    }
+
+    if (isCreateAccount && result.requiresEmailConfirmation) {
+      setIsAwaitingEmailConfirmation(true);
+      return;
+    }
+
+    router.replace(result.shouldStartOnboarding ? '/province-territory' : '/ask-uncovr');
+  }
+
+  if (isAwaitingEmailConfirmation) {
+    return <EmailConfirmationState email={normalizedEmail} />;
   }
 
   return (
@@ -82,7 +113,10 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
               keyboardType="email-address"
               label="Email"
               onBlur={() => setEmailTouched(true)}
-              onChangeText={setEmail}
+              onChangeText={(value) => {
+                setEmail(value);
+                setAuthError(null);
+              }}
               placeholder="you@example.com"
               textContentType="emailAddress"
               value={email}
@@ -90,7 +124,10 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
             <AuthField
               autoComplete={isCreateAccount ? 'new-password' : 'current-password'}
               label="Password"
-              onChangeText={setPassword}
+              onChangeText={(value) => {
+                setPassword(value);
+                setAuthError(null);
+              }}
               onSubmitEditing={isCreateAccount ? undefined : submit}
               placeholder="Enter your password"
               secureTextEntry
@@ -107,7 +144,10 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
                 }
                 label="Confirm password"
                 onBlur={() => setConfirmPasswordTouched(true)}
-                onChangeText={setConfirmPassword}
+                onChangeText={(value) => {
+                  setConfirmPassword(value);
+                  setAuthError(null);
+                }}
                 onSubmitEditing={submit}
                 placeholder="Re-enter your password"
                 secureTextEntry
@@ -117,19 +157,36 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
             )}
           </View>
 
+          {authError && (
+            <Text accessibilityLiveRegion="polite" style={styles.authError}>
+              {authError}
+            </Text>
+          )}
+
           <Pressable
             accessibilityRole="button"
-            disabled={!formIsComplete}
+            disabled={!formIsComplete || isSubmitting}
             onPress={submit}
             style={({ pressed }) => [
               styles.primaryButton,
-              !formIsComplete && styles.primaryButtonDisabled,
-              pressed && formIsComplete && styles.primaryButtonPressed,
+              (!formIsComplete || isSubmitting) && styles.primaryButtonDisabled,
+              pressed && formIsComplete && !isSubmitting && styles.primaryButtonPressed,
             ]}>
-            <Text style={styles.primaryButtonText}>
-              {isCreateAccount ? 'Create account' : 'Sign in'}
-            </Text>
-            <Ionicons color={colors.primaryBlack} name="arrow-forward" size={19} />
+            {isSubmitting ? (
+              <>
+                <ActivityIndicator color={colors.primaryBlack} size="small" />
+                <Text style={styles.primaryButtonText}>
+                  {isCreateAccount ? 'Creating account...' : 'Signing in...'}
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.primaryButtonText}>
+                  {isCreateAccount ? 'Create account' : 'Sign in'}
+                </Text>
+                <Ionicons color={colors.primaryBlack} name="arrow-forward" size={19} />
+              </>
+            )}
           </Pressable>
 
           <Link href={isCreateAccount ? '/sign-in' : '/create-account'} asChild>
@@ -144,6 +201,38 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
           </Link>
         </ScrollView>
       </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+function EmailConfirmationState({ email }: { email: string }) {
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <View style={[styles.content, styles.confirmationContent]}>
+        <View style={styles.brandBlock}>
+          <Text style={styles.wordmark}>
+            UNC<Text style={styles.wordmarkAccent}>O</Text>VR
+          </Text>
+          <View style={styles.goldRule} />
+        </View>
+
+        <View style={styles.confirmationIcon}>
+          <Ionicons color={colors.gold} name="mail-outline" size={32} />
+        </View>
+        <View style={styles.headingBlock}>
+          <Text style={styles.title}>Check your email</Text>
+          <Text style={styles.supportingText}>
+            We sent confirmation instructions to {email}. Confirm your email, then sign in.
+          </Text>
+        </View>
+
+        <Link href="/sign-in" asChild>
+          <Pressable style={styles.primaryButton}>
+            <Text style={styles.primaryButtonText}>Go to sign in</Text>
+            <Ionicons color={colors.primaryBlack} name="arrow-forward" size={19} />
+          </Pressable>
+        </Link>
+      </View>
     </SafeAreaView>
   );
 }
@@ -230,6 +319,12 @@ const styles = StyleSheet.create({
   form: {
     gap: spacing.md,
   },
+  authError: {
+    color: '#B42318',
+    fontSize: typography.sizes.caption,
+    lineHeight: typography.lineHeights.caption,
+    marginTop: spacing.md,
+  },
   fieldGroup: {
     gap: spacing.xs,
   },
@@ -296,5 +391,18 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.semibold,
     textDecorationLine: 'underline',
     textDecorationColor: colors.gold,
+  },
+  confirmationContent: {
+    justifyContent: 'center',
+  },
+  confirmationIcon: {
+    alignItems: 'center',
+    borderColor: colors.gold,
+    borderRadius: borderRadii.full,
+    borderWidth: 1,
+    height: 64,
+    justifyContent: 'center',
+    marginBottom: spacing.lg,
+    width: 64,
   },
 });
