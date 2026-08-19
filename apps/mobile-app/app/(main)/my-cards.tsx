@@ -1,103 +1,135 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { borderRadii, colors, spacing, typography } from '@/constants/theme';
+import {
+  addOwnedCard,
+  type CardCatalogItem,
+  type CardUuid,
+  getCardCatalogue,
+  getOwnedCards,
+  removeOwnedCard,
+} from '@/lib/cards';
+import { useAuth } from '@/providers/auth-provider';
 
-type Card = {
-  id: string;
-  bank: string;
-  name: string;
-  network: string;
-  benefitCount: number;
-  backgroundColor: string;
+type WalletCard = CardCatalogItem & {
   accentColor: string;
+  backgroundColor: string;
+  bank: string;
+  benefitCount: number;
+  displayNetwork: string;
 };
 
-const cards: Card[] = [
-  {
-    id: 'rbc-avion',
-    bank: 'RBC',
-    name: 'RBC Avion',
-    network: 'Visa Infinite',
-    benefitCount: 6,
-    backgroundColor: '#12355B',
-    accentColor: '#4C8AC9',
-  },
-  {
-    id: 'td-aeroplan',
-    bank: 'TD',
-    name: 'TD Aeroplan',
-    network: 'Visa Infinite',
-    benefitCount: 5,
-    backgroundColor: '#0F5132',
-    accentColor: '#57A773',
-  },
-  {
-    id: 'amex-cobalt',
-    bank: 'AMEX',
-    name: 'American Express Cobalt',
-    network: 'American Express',
-    benefitCount: 4,
-    backgroundColor: '#1D3557',
-    accentColor: '#6C8EBF',
-  },
-  {
-    id: 'scotiabank-passport',
-    bank: 'SCOTIA',
-    name: 'Scotiabank Passport',
-    network: 'Visa Infinite',
-    benefitCount: 6,
-    backgroundColor: '#8C1821',
-    accentColor: '#D75B63',
-  },
-  {
-    id: 'cibc-aventura',
-    bank: 'CIBC',
-    name: 'CIBC Aventura',
-    network: 'Visa Infinite',
-    benefitCount: 5,
-    backgroundColor: '#5B1A32',
-    accentColor: '#B76280',
-  },
-];
+const issuerPresentation: Record<
+  string,
+  { accentColor: string; backgroundColor: string; bank: string }
+> = {
+  rbc: { accentColor: '#4C8AC9', backgroundColor: '#12355B', bank: 'RBC' },
+  td: { accentColor: '#57A773', backgroundColor: '#0F5132', bank: 'TD' },
+  scotiabank: { accentColor: '#D75B63', backgroundColor: '#8C1821', bank: 'SCOTIA' },
+  'american-express': { accentColor: '#6C8EBF', backgroundColor: '#1D3557', bank: 'AMEX' },
+  'canadian-tire-bank': { accentColor: '#C53A42', backgroundColor: '#1C1C1E', bank: 'CTB' },
+  cibc: { accentColor: '#B76280', backgroundColor: '#5B1A32', bank: 'CIBC' },
+};
 
-const initialOwnedCardIds = ['rbc-avion', 'td-aeroplan'];
+const mockBenefitCounts: Record<string, number> = {
+  'rbc-avion-visa-infinite': 6,
+  'td-aeroplan-visa-infinite': 5,
+  'amex-cobalt': 4,
+  'scotiabank-passport-visa-infinite': 6,
+};
 
 export default function MyCardsScreen() {
-  const [ownedCardIds, setOwnedCardIds] = useState(initialOwnedCardIds);
-  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
-  const [pendingRemovalId, setPendingRemovalId] = useState<string | null>(null);
+  const { session } = useAuth();
+  const [cards, setCards] = useState<WalletCard[]>([]);
+  const [ownedCards, setOwnedCards] = useState<WalletCard[]>([]);
+  const [selectedCardId, setSelectedCardId] = useState<CardUuid | null>(null);
+  const [pendingRemovalId, setPendingRemovalId] = useState<CardUuid | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const userId = session?.user.id;
 
-  const ownedCards = cards.filter((card) => ownedCardIds.includes(card.id));
+  useEffect(() => {
+    if (!userId) return;
+
+    let isMounted = true;
+
+    Promise.all([getCardCatalogue(), getOwnedCards(userId)])
+      .then(([catalogue, owned]) => {
+        if (!isMounted) return;
+
+        setCards(catalogue.map(toWalletCard));
+        setOwnedCards(owned.map(toWalletCard));
+      })
+      .catch(() => {
+        if (isMounted) setErrorMessage('We could not load your wallet. Try again.');
+      })
+      .finally(() => {
+        if (isMounted) setIsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [userId]);
+
   const availableCards = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
+    const ownedCardIds = new Set(ownedCards.map(({ id }) => id));
 
     return cards.filter(
       (card) =>
-        !ownedCardIds.includes(card.id) &&
-        `${card.bank} ${card.name} ${card.network}`.toLowerCase().includes(normalizedQuery)
+        !ownedCardIds.has(card.id) &&
+        `${card.bank} ${card.issuerName} ${card.name} ${card.displayNetwork}`
+          .toLowerCase()
+          .includes(normalizedQuery)
     );
-  }, [ownedCardIds, searchQuery]);
+  }, [cards, ownedCards, searchQuery]);
 
-  function toggleCard(cardId: string) {
+  function toggleCard(cardId: CardUuid) {
     setPendingRemovalId(null);
     setSelectedCardId((currentId) => (currentId === cardId ? null : cardId));
   }
 
-  function addCard(cardId: string) {
-    setOwnedCardIds((currentIds) => [...currentIds, cardId]);
-    setSearchQuery('');
-    setSelectedCardId(null);
-    setPendingRemovalId(null);
+  async function addCard(card: WalletCard) {
+    if (!userId || isSaving) return;
+
+    setErrorMessage(null);
+    setIsSaving(true);
+
+    try {
+      await addOwnedCard(userId, card.id);
+      setOwnedCards((currentCards) => [...currentCards, card]);
+      setSearchQuery('');
+      setSelectedCardId(null);
+      setPendingRemovalId(null);
+    } catch {
+      setErrorMessage('We could not add that card. Check your connection and try again.');
+    } finally {
+      setIsSaving(false);
+    }
   }
 
-  function removeCard(cardId: string) {
-    setOwnedCardIds((currentIds) => currentIds.filter((id) => id !== cardId));
-    setPendingRemovalId(null);
-    setSelectedCardId(null);
+  async function removeCard(cardId: CardUuid) {
+    if (!userId || isSaving) return;
+
+    setErrorMessage(null);
+    setIsSaving(true);
+
+    try {
+      await removeOwnedCard(userId, cardId);
+      setOwnedCards((currentCards) => currentCards.filter(({ id }) => id !== cardId));
+      setPendingRemovalId(null);
+      setSelectedCardId(null);
+    } catch {
+      setErrorMessage('We could not remove that card. Check your connection and try again.');
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   return (
@@ -121,22 +153,40 @@ export default function MyCardsScreen() {
           </View>
         </View>
 
+        {errorMessage && (
+          <Text accessibilityLiveRegion="polite" style={styles.errorText}>
+            {errorMessage}
+          </Text>
+        )}
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Your Cards</Text>
           <View style={styles.cardList}>
-            {ownedCards.map((card, index) => (
-              <OwnedCardRow
-                card={card}
-                expanded={selectedCardId === card.id}
-                key={card.id}
-                last={index === ownedCards.length - 1}
-                onCancelRemove={() => setPendingRemovalId(null)}
-                onConfirmRemove={() => removeCard(card.id)}
-                onPress={() => toggleCard(card.id)}
-                onRequestRemove={() => setPendingRemovalId(card.id)}
-                removalPending={pendingRemovalId === card.id}
-              />
-            ))}
+            {isLoading && (
+              <View style={styles.emptyState}>
+                <ActivityIndicator color={colors.gold} size="small" />
+              </View>
+            )}
+            {!isLoading &&
+              ownedCards.map((card, index) => (
+                <OwnedCardRow
+                  card={card}
+                  disabled={isSaving}
+                  expanded={selectedCardId === card.id}
+                  key={card.id}
+                  last={index === ownedCards.length - 1}
+                  onCancelRemove={() => setPendingRemovalId(null)}
+                  onConfirmRemove={() => void removeCard(card.id)}
+                  onPress={() => toggleCard(card.id)}
+                  onRequestRemove={() => setPendingRemovalId(card.id)}
+                  removalPending={pendingRemovalId === card.id}
+                />
+              ))}
+            {!isLoading && ownedCards.length === 0 && (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyStateText}>No cards added yet.</Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -168,16 +218,17 @@ export default function MyCardsScreen() {
             {availableCards.map((card, index) => (
               <AvailableCardRow
                 card={card}
+                disabled={isSaving}
                 key={card.id}
                 last={index === availableCards.length - 1}
-                onAdd={() => addCard(card.id)}
+                onAdd={() => void addCard(card)}
               />
             ))}
             {availableCards.length === 0 && (
               <View style={styles.emptyState}>
                 <Ionicons color={colors.gold} name="checkmark-circle-outline" size={24} />
                 <Text style={styles.emptyStateText}>
-                  {searchQuery ? 'No matching cards found.' : 'All example cards have been added.'}
+                  {searchQuery ? 'No matching cards found.' : 'All available cards have been added.'}
                 </Text>
               </View>
             )}
@@ -190,6 +241,7 @@ export default function MyCardsScreen() {
 
 function OwnedCardRow({
   card,
+  disabled,
   expanded,
   last,
   onCancelRemove,
@@ -198,7 +250,8 @@ function OwnedCardRow({
   onRequestRemove,
   removalPending,
 }: {
-  card: Card;
+  card: WalletCard;
+  disabled: boolean;
   expanded: boolean;
   last: boolean;
   onCancelRemove: () => void;
@@ -212,6 +265,7 @@ function OwnedCardRow({
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded }}
+        disabled={disabled}
         onPress={onPress}
         style={({ pressed }) => [styles.cardRow, pressed && styles.rowPressed]}>
         <CardThumbnail card={card} />
@@ -239,6 +293,7 @@ function OwnedCardRow({
               <Pressable
                 accessibilityLabel={`Remove ${card.name}`}
                 accessibilityRole="button"
+                disabled={disabled}
                 hitSlop={4}
                 onPress={onRequestRemove}
                 style={({ pressed }) => [styles.removeButton, pressed && styles.removeButtonPressed]}>
@@ -271,10 +326,12 @@ function OwnedCardRow({
 
 function AvailableCardRow({
   card,
+  disabled,
   last,
   onAdd,
 }: {
-  card: Card;
+  card: WalletCard;
+  disabled: boolean;
   last: boolean;
   onAdd: () => void;
 }) {
@@ -288,6 +345,7 @@ function AvailableCardRow({
       <Pressable
         accessibilityLabel={`Add ${card.name}`}
         accessibilityRole="button"
+        disabled={disabled}
         hitSlop={8}
         onPress={onAdd}
         style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}>
@@ -297,14 +355,31 @@ function AvailableCardRow({
   );
 }
 
-function CardThumbnail({ card }: { card: Card }) {
+function CardThumbnail({ card }: { card: WalletCard }) {
   return (
     <View style={[styles.thumbnail, { backgroundColor: card.backgroundColor }]}>
       <View style={[styles.thumbnailAccent, { backgroundColor: card.accentColor }]} />
       <Text style={styles.thumbnailBank}>{card.bank}</Text>
-      <Text style={styles.thumbnailNetwork}>{card.network}</Text>
+      <Text numberOfLines={1} style={styles.thumbnailNetwork}>
+        {card.displayNetwork}
+      </Text>
     </View>
   );
+}
+
+function toWalletCard(card: CardCatalogItem): WalletCard {
+  const presentation = issuerPresentation[card.issuerSlug] ?? {
+    accentColor: colors.gold,
+    backgroundColor: colors.secondaryBlack,
+    bank: card.issuerName.split(' ')[0].toUpperCase(),
+  };
+
+  return {
+    ...card,
+    ...presentation,
+    benefitCount: mockBenefitCounts[card.slug] ?? 0,
+    displayNetwork: [card.network, card.networkTier].filter(Boolean).join(' '),
+  };
 }
 
 const styles = StyleSheet.create({
@@ -378,6 +453,12 @@ const styles = StyleSheet.create({
     borderRadius: borderRadii.lg,
     borderWidth: 1,
     overflow: 'hidden',
+  },
+  errorText: {
+    color: '#B42318',
+    fontSize: typography.sizes.caption,
+    lineHeight: typography.lineHeights.caption,
+    textAlign: 'center',
   },
   cardRow: {
     alignItems: 'center',

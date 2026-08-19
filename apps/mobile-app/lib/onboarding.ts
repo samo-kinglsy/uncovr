@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { type CardUuid, saveOwnedCardIds } from '@/lib/cards';
 
 export type OnboardingProfile = {
   provinceTerritory: string | null;
@@ -41,44 +42,7 @@ export async function saveProvinceTerritory(userId: string, provinceTerritory: s
   if (error) throw error;
 }
 
-export async function getSelectedCardIds(userId: string): Promise<string[]> {
-  const { data, error } = await supabase
-    .from('user_cards')
-    .select('card_id')
-    .eq('user_id', userId);
-
-  if (error) throw error;
-
-  return data.map(({ card_id }) => card_id);
-}
-
-export async function saveSelectedCardIds(userId: string, selectedCardIds: string[]) {
-  const existingCardIds = await getSelectedCardIds(userId);
-  const existingCardIdSet = new Set(existingCardIds);
-  const selectedCardIdSet = new Set(selectedCardIds);
-  const cardIdsToAdd = selectedCardIds.filter((cardId) => !existingCardIdSet.has(cardId));
-  const cardIdsToRemove = existingCardIds.filter((cardId) => !selectedCardIdSet.has(cardId));
-
-  if (cardIdsToAdd.length > 0) {
-    const { error } = await supabase
-      .from('user_cards')
-      .insert(cardIdsToAdd.map((cardId) => ({ card_id: cardId, user_id: userId })));
-
-    if (error) throw error;
-  }
-
-  if (cardIdsToRemove.length > 0) {
-    const { error } = await supabase
-      .from('user_cards')
-      .delete()
-      .eq('user_id', userId)
-      .in('card_id', cardIdsToRemove);
-
-    if (error) throw error;
-  }
-}
-
-export async function completeOnboarding(userId: string, selectedCardIds: string[]) {
+export async function completeOnboarding(userId: string, selectedCardIds: CardUuid[]) {
   if (selectedCardIds.length === 0) {
     throw new Error('Select at least one card before completing onboarding.');
   }
@@ -89,7 +53,7 @@ export async function completeOnboarding(userId: string, selectedCardIds: string
     throw new Error('Select a province or territory before completing onboarding.');
   }
 
-  await saveSelectedCardIds(userId, selectedCardIds);
+  await saveOwnedCardIds(userId, selectedCardIds);
 
   const { error } = await supabase
     .from('profiles')

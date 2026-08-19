@@ -6,60 +6,29 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { borderRadii, colors, spacing, typography } from '@/constants/theme';
 import {
-  completeOnboarding as persistCompletedOnboarding,
-  getSelectedCardIds,
-  saveSelectedCardIds,
-} from '@/lib/onboarding';
+  type CardCatalogItem,
+  type CardUuid,
+  getCardCatalogue,
+  getOwnedCards,
+  saveOwnedCardIds,
+} from '@/lib/cards';
+import { completeOnboarding as persistCompletedOnboarding } from '@/lib/onboarding';
 import { useAuth } from '@/providers/auth-provider';
 
-type Card = {
-  id: string;
-  issuer: string;
-  name: string;
-  thumbnailLabel: string;
-  backgroundColor: string;
-  accentColor: string;
+const issuerArtwork: Record<string, { accentColor: string; backgroundColor: string }> = {
+  rbc: { accentColor: '#4C8AC9', backgroundColor: '#12355B' },
+  td: { accentColor: '#57A773', backgroundColor: '#0F5132' },
+  scotiabank: { accentColor: '#D75B63', backgroundColor: '#8C1821' },
+  'american-express': { accentColor: '#6C8EBF', backgroundColor: '#1D3557' },
+  'canadian-tire-bank': { accentColor: '#C53A42', backgroundColor: '#1C1C1E' },
+  cibc: { accentColor: '#B76280', backgroundColor: '#5B1A32' },
 };
-
-const cards: Card[] = [
-  {
-    id: 'rbc-avion-visa-infinite',
-    issuer: 'Royal Bank of Canada',
-    name: 'RBC Avion Visa Infinite',
-    thumbnailLabel: 'VISA INFINITE',
-    backgroundColor: '#12355B',
-    accentColor: '#4C8AC9',
-  },
-  {
-    id: 'td-aeroplan-visa-infinite',
-    issuer: 'TD Canada Trust',
-    name: 'TD Aeroplan Visa Infinite',
-    thumbnailLabel: 'VISA INFINITE',
-    backgroundColor: '#0F5132',
-    accentColor: '#57A773',
-  },
-  {
-    id: 'scotiabank-passport-visa-infinite',
-    issuer: 'Scotiabank',
-    name: 'Scotiabank Passport Visa Infinite',
-    thumbnailLabel: 'VISA INFINITE',
-    backgroundColor: '#8C1821',
-    accentColor: '#D75B63',
-  },
-  {
-    id: 'amex-cobalt',
-    issuer: 'American Express',
-    name: 'American Express Cobalt Card',
-    thumbnailLabel: 'COBALT',
-    backgroundColor: '#1D3557',
-    accentColor: '#6C8EBF',
-  },
-];
 
 export default function CreditCardsScreen() {
   const router = useRouter();
   const { markOnboardingComplete, session } = useAuth();
-  const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
+  const [cards, setCards] = useState<CardCatalogItem[]>([]);
+  const [selectedCardIds, setSelectedCardIds] = useState<CardUuid[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -72,9 +41,13 @@ export default function CreditCardsScreen() {
 
     let isMounted = true;
 
-    getSelectedCardIds(userId)
-      .then((cardIds) => {
-        if (isMounted) setSelectedCardIds(cardIds);
+    Promise.all([getCardCatalogue(), getOwnedCards(userId)])
+      .then(([catalogue, ownedCards]) => {
+        if (!isMounted) return;
+
+        const catalogueIds = new Set(catalogue.map(({ id }) => id));
+        setCards([...catalogue, ...ownedCards.filter(({ id }) => !catalogueIds.has(id))]);
+        setSelectedCardIds(ownedCards.map(({ id }) => id));
       })
       .catch(() => {
         if (isMounted) setErrorMessage('We could not load your saved cards. Try again.');
@@ -94,12 +67,13 @@ export default function CreditCardsScreen() {
 
     return cards.filter(
       (card) =>
+        card.status === 'ACTIVE' &&
         !selectedCardIds.includes(card.id) &&
-        `${card.issuer} ${card.name}`.toLowerCase().includes(normalizedQuery)
+        `${card.issuerName} ${card.name}`.toLowerCase().includes(normalizedQuery)
     );
-  }, [searchQuery, selectedCardIds]);
+  }, [cards, searchQuery, selectedCardIds]);
 
-  async function updateSelectedCards(nextCardIds: string[]) {
+  async function updateSelectedCards(nextCardIds: CardUuid[]) {
     if (!userId || isLoading || isSaving || isCompleting) return;
 
     const previousCardIds = selectedCardIds;
@@ -108,7 +82,7 @@ export default function CreditCardsScreen() {
     setIsSaving(true);
 
     try {
-      await saveSelectedCardIds(userId, nextCardIds);
+      await saveOwnedCardIds(userId, nextCardIds);
     } catch {
       setSelectedCardIds(previousCardIds);
       setErrorMessage('We could not save your cards. Check your connection and try again.');
@@ -117,11 +91,11 @@ export default function CreditCardsScreen() {
     }
   }
 
-  function addCard(cardId: string) {
+  function addCard(cardId: CardUuid) {
     void updateSelectedCards([...selectedCardIds, cardId]);
   }
 
-  function removeCard(cardId: string) {
+  function removeCard(cardId: CardUuid) {
     void updateSelectedCards(selectedCardIds.filter((id) => id !== cardId));
   }
 
@@ -288,7 +262,7 @@ function CardRow({
   onPress,
 }: {
   action: 'add' | 'remove';
-  card: Card;
+  card: CardCatalogItem;
   disabled: boolean;
   last: boolean;
   onPress: () => void;
@@ -300,7 +274,7 @@ function CardRow({
         <Text numberOfLines={2} style={styles.cardName}>
           {card.name}
         </Text>
-        <Text style={styles.cardIssuer}>{card.issuer}</Text>
+        <Text style={styles.cardIssuer}>{card.issuerName}</Text>
       </View>
       <Pressable
         accessibilityLabel={`${action === 'add' ? 'Add' : 'Remove'} ${card.name}`}
@@ -324,12 +298,20 @@ function CardRow({
   );
 }
 
-function CardThumbnail({ card }: { card: Card }) {
+function CardThumbnail({ card }: { card: CardCatalogItem }) {
+  const artwork = issuerArtwork[card.issuerSlug] ?? {
+    accentColor: colors.gold,
+    backgroundColor: colors.secondaryBlack,
+  };
+  const networkLabel = [card.network, card.networkTier].filter(Boolean).join(' ').toUpperCase();
+
   return (
-    <View style={[styles.thumbnail, { backgroundColor: card.backgroundColor }]}>
-      <View style={[styles.thumbnailAccent, { backgroundColor: card.accentColor }]} />
-      <Text style={styles.thumbnailIssuer}>{card.issuer.split(' ')[0].toUpperCase()}</Text>
-      <Text style={styles.thumbnailLabel}>{card.thumbnailLabel}</Text>
+    <View style={[styles.thumbnail, { backgroundColor: artwork.backgroundColor }]}>
+      <View style={[styles.thumbnailAccent, { backgroundColor: artwork.accentColor }]} />
+      <Text style={styles.thumbnailIssuer}>{card.issuerName.split(' ')[0].toUpperCase()}</Text>
+      <Text numberOfLines={1} style={styles.thumbnailLabel}>
+        {networkLabel}
+      </Text>
     </View>
   );
 }
