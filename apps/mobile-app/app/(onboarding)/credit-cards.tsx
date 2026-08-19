@@ -1,10 +1,15 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { borderRadii, colors, spacing, typography } from '@/constants/theme';
+import {
+  completeOnboarding as persistCompletedOnboarding,
+  getSelectedCardIds,
+  saveSelectedCardIds,
+} from '@/lib/onboarding';
 import { useAuth } from '@/providers/auth-provider';
 
 type Card = {
@@ -18,7 +23,7 @@ type Card = {
 
 const cards: Card[] = [
   {
-    id: 'rbc-avion',
+    id: 'rbc-avion-visa-infinite',
     issuer: 'Royal Bank of Canada',
     name: 'RBC Avion Visa Infinite',
     thumbnailLabel: 'VISA INFINITE',
@@ -26,7 +31,7 @@ const cards: Card[] = [
     accentColor: '#4C8AC9',
   },
   {
-    id: 'td-aeroplan',
+    id: 'td-aeroplan-visa-infinite',
     issuer: 'TD Canada Trust',
     name: 'TD Aeroplan Visa Infinite',
     thumbnailLabel: 'VISA INFINITE',
@@ -34,7 +39,7 @@ const cards: Card[] = [
     accentColor: '#57A773',
   },
   {
-    id: 'scotiabank-passport',
+    id: 'scotiabank-passport-visa-infinite',
     issuer: 'Scotiabank',
     name: 'Scotiabank Passport Visa Infinite',
     thumbnailLabel: 'VISA INFINITE',
@@ -53,9 +58,35 @@ const cards: Card[] = [
 
 export default function CreditCardsScreen() {
   const router = useRouter();
-  const { completeOnboarding } = useAuth();
+  const { markOnboardingComplete, session } = useAuth();
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isCompleting, setIsCompleting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const userId = session?.user.id;
+
+  useEffect(() => {
+    if (!userId) return;
+
+    let isMounted = true;
+
+    getSelectedCardIds(userId)
+      .then((cardIds) => {
+        if (isMounted) setSelectedCardIds(cardIds);
+      })
+      .catch(() => {
+        if (isMounted) setErrorMessage('We could not load your saved cards. Try again.');
+      })
+      .finally(() => {
+        if (isMounted) setIsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [userId]);
 
   const selectedCards = cards.filter((card) => selectedCardIds.includes(card.id));
   const availableCards = useMemo(() => {
@@ -68,17 +99,47 @@ export default function CreditCardsScreen() {
     );
   }, [searchQuery, selectedCardIds]);
 
+  async function updateSelectedCards(nextCardIds: string[]) {
+    if (!userId || isLoading || isSaving || isCompleting) return;
+
+    const previousCardIds = selectedCardIds;
+    setSelectedCardIds(nextCardIds);
+    setErrorMessage(null);
+    setIsSaving(true);
+
+    try {
+      await saveSelectedCardIds(userId, nextCardIds);
+    } catch {
+      setSelectedCardIds(previousCardIds);
+      setErrorMessage('We could not save your cards. Check your connection and try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   function addCard(cardId: string) {
-    setSelectedCardIds((currentIds) => [...currentIds, cardId]);
+    void updateSelectedCards([...selectedCardIds, cardId]);
   }
 
   function removeCard(cardId: string) {
-    setSelectedCardIds((currentIds) => currentIds.filter((id) => id !== cardId));
+    void updateSelectedCards(selectedCardIds.filter((id) => id !== cardId));
   }
 
-  function viewBenefitsWallet() {
-    completeOnboarding();
-    router.replace('/ask-uncovr');
+  async function uncoverBenefits() {
+    if (!userId || selectedCardIds.length === 0 || isLoading || isSaving || isCompleting) return;
+
+    setErrorMessage(null);
+    setIsCompleting(true);
+
+    try {
+      await persistCompletedOnboarding(userId, selectedCardIds);
+      markOnboardingComplete();
+      router.replace('/ask-uncovr');
+    } catch {
+      setErrorMessage('We could not complete onboarding. Check your selections and try again.');
+    } finally {
+      setIsCompleting(false);
+    }
   }
 
   return (
@@ -130,7 +191,11 @@ export default function CreditCardsScreen() {
                 <Text style={styles.countText}>{selectedCards.length} selected</Text>
               </View>
             </View>
-            {selectedCards.length > 0 ? (
+            {isLoading ? (
+              <View style={styles.loadingCards}>
+                <ActivityIndicator color={colors.gold} size="small" />
+              </View>
+            ) : selectedCards.length > 0 ? (
               <View style={styles.cardList}>
                 {selectedCards.map((card, index) => (
                   <CardRow
@@ -138,6 +203,7 @@ export default function CreditCardsScreen() {
                     card={card}
                     key={card.id}
                     last={index === selectedCards.length - 1}
+                    disabled={isSaving || isCompleting}
                     onPress={() => removeCard(card.id)}
                   />
                 ))}
@@ -159,6 +225,7 @@ export default function CreditCardsScreen() {
                     card={card}
                     key={card.id}
                     last={index === availableCards.length - 1}
+                    disabled={isLoading || isSaving || isCompleting}
                     onPress={() => addCard(card.id)}
                   />
                 ))}
@@ -175,17 +242,37 @@ export default function CreditCardsScreen() {
         </ScrollView>
 
         <View style={styles.footer}>
+          {errorMessage && (
+            <Text accessibilityLiveRegion="polite" style={styles.errorText}>
+              {errorMessage}
+            </Text>
+          )}
           <Pressable
             accessibilityRole="button"
-            disabled={selectedCards.length === 0}
-            onPress={viewBenefitsWallet}
+            disabled={selectedCards.length === 0 || isLoading || isSaving || isCompleting}
+            onPress={uncoverBenefits}
             style={({ pressed }) => [
               styles.primaryButton,
-              selectedCards.length === 0 && styles.primaryButtonDisabled,
-              pressed && selectedCards.length > 0 && styles.primaryButtonPressed,
+              (selectedCards.length === 0 || isLoading || isSaving || isCompleting) &&
+                styles.primaryButtonDisabled,
+              pressed &&
+                selectedCards.length > 0 &&
+                !isLoading &&
+                !isSaving &&
+                !isCompleting &&
+                styles.primaryButtonPressed,
             ]}>
-            <Text style={styles.primaryButtonText}>Uncover my benefits</Text>
-            <Ionicons color={colors.primaryBlack} name="arrow-forward" size={19} />
+            {isCompleting ? (
+              <>
+                <ActivityIndicator color={colors.primaryBlack} size="small" />
+                <Text style={styles.primaryButtonText}>Saving...</Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.primaryButtonText}>Uncover my benefits</Text>
+                <Ionicons color={colors.primaryBlack} name="arrow-forward" size={19} />
+              </>
+            )}
           </Pressable>
         </View>
       </View>
@@ -196,11 +283,13 @@ export default function CreditCardsScreen() {
 function CardRow({
   action,
   card,
+  disabled,
   last,
   onPress,
 }: {
   action: 'add' | 'remove';
   card: Card;
+  disabled: boolean;
   last: boolean;
   onPress: () => void;
 }) {
@@ -216,11 +305,13 @@ function CardRow({
       <Pressable
         accessibilityLabel={`${action === 'add' ? 'Add' : 'Remove'} ${card.name}`}
         accessibilityRole="button"
+        disabled={disabled}
         hitSlop={8}
         onPress={onPress}
         style={({ pressed }) => [
           styles.rowAction,
           action === 'remove' && styles.removeAction,
+          disabled && styles.rowActionDisabled,
           pressed && styles.rowActionPressed,
         ]}>
         <Ionicons
@@ -301,6 +392,11 @@ const styles = StyleSheet.create({
   },
   selectedSection: {
     gap: spacing.sm,
+  },
+  loadingCards: {
+    alignItems: 'center',
+    minHeight: 64,
+    justifyContent: 'center',
   },
   availableSection: {
     backgroundColor: colors.warmOffWhite,
@@ -408,6 +504,9 @@ const styles = StyleSheet.create({
   rowActionPressed: {
     opacity: 0.7,
   },
+  rowActionDisabled: {
+    opacity: 0.45,
+  },
   emptySelected: {
     alignItems: 'center',
     borderColor: colors.warmOffWhite,
@@ -437,9 +536,16 @@ const styles = StyleSheet.create({
   },
   footer: {
     backgroundColor: colors.offWhite,
+    gap: spacing.sm,
     paddingBottom: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingTop: spacing.md,
+  },
+  errorText: {
+    color: '#B42318',
+    fontSize: typography.sizes.caption,
+    lineHeight: typography.lineHeights.caption,
+    textAlign: 'center',
   },
   primaryButton: {
     alignItems: 'center',

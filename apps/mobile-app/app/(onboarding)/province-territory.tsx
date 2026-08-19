@@ -1,10 +1,12 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { borderRadii, colors, spacing, typography } from '@/constants/theme';
+import { getOrCreateOnboardingProfile, saveProvinceTerritory } from '@/lib/onboarding';
+import { useAuth } from '@/providers/auth-provider';
 
 const provincesAndTerritories = [
   'Alberta',
@@ -24,7 +26,49 @@ const provincesAndTerritories = [
 
 export default function ProvinceTerritoryScreen() {
   const router = useRouter();
+  const { session } = useAuth();
   const [selectedRegion, setSelectedRegion] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const userId = session?.user.id;
+
+  useEffect(() => {
+    if (!userId) return;
+
+    let isMounted = true;
+
+    getOrCreateOnboardingProfile(userId)
+      .then((profile) => {
+        if (isMounted) setSelectedRegion(profile.provinceTerritory);
+      })
+      .catch(() => {
+        if (isMounted) setErrorMessage('We could not load your province or territory. Try again.');
+      })
+      .finally(() => {
+        if (isMounted) setIsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [userId]);
+
+  async function continueToCards() {
+    if (!userId || !selectedRegion || isSaving) return;
+
+    setErrorMessage(null);
+    setIsSaving(true);
+
+    try {
+      await saveProvinceTerritory(userId, selectedRegion);
+      router.push('/credit-cards');
+    } catch {
+      setErrorMessage('We could not save your selection. Check your connection and try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
 
   return (
     <SafeAreaView edges={['bottom']} style={styles.safeArea}>
@@ -54,7 +98,11 @@ export default function ProvinceTerritoryScreen() {
                   accessibilityRole="radio"
                   accessibilityState={{ checked: selected }}
                   key={region}
-                  onPress={() => setSelectedRegion(region)}
+                  disabled={isLoading || isSaving}
+                  onPress={() => {
+                    setSelectedRegion(region);
+                    setErrorMessage(null);
+                  }}
                   style={({ pressed }) => [
                     styles.selectionRow,
                     selected && styles.selectionRowSelected,
@@ -73,17 +121,33 @@ export default function ProvinceTerritoryScreen() {
         </ScrollView>
 
         <View style={styles.footer}>
+          {errorMessage && (
+            <Text accessibilityLiveRegion="polite" style={styles.errorText}>
+              {errorMessage}
+            </Text>
+          )}
           <Pressable
             accessibilityRole="button"
-            disabled={!selectedRegion}
-            onPress={() => router.push('/credit-cards')}
+            disabled={!selectedRegion || isLoading || isSaving}
+            onPress={continueToCards}
             style={({ pressed }) => [
               styles.continueButton,
-              !selectedRegion && styles.continueButtonDisabled,
-              pressed && selectedRegion && styles.continueButtonPressed,
+              (!selectedRegion || isLoading || isSaving) && styles.continueButtonDisabled,
+              pressed && selectedRegion && !isLoading && !isSaving && styles.continueButtonPressed,
             ]}>
-            <Text style={styles.continueButtonText}>Continue</Text>
-            <Ionicons color={colors.primaryBlack} name="arrow-forward" size={19} />
+            {isLoading || isSaving ? (
+              <>
+                <ActivityIndicator color={colors.primaryBlack} size="small" />
+                <Text style={styles.continueButtonText}>
+                  {isSaving ? 'Saving...' : 'Loading...'}
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.continueButtonText}>Continue</Text>
+                <Ionicons color={colors.primaryBlack} name="arrow-forward" size={19} />
+              </>
+            )}
           </Pressable>
         </View>
       </View>
@@ -189,8 +253,15 @@ const styles = StyleSheet.create({
   },
   footer: {
     backgroundColor: colors.offWhite,
+    gap: spacing.sm,
     paddingBottom: spacing.sm,
     paddingTop: spacing.md,
+  },
+  errorText: {
+    color: '#B42318',
+    fontSize: typography.sizes.caption,
+    lineHeight: typography.lineHeights.caption,
+    textAlign: 'center',
   },
   continueButton: {
     alignItems: 'center',

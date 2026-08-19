@@ -1,19 +1,19 @@
 import type { Session } from '@supabase/supabase-js';
-import { createContext, type PropsWithChildren, useContext, useEffect, useState } from 'react';
+import { createContext, type PropsWithChildren, useContext, useEffect, useRef, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 
+import { getOrCreateOnboardingProfile } from '@/lib/onboarding';
 import { supabase } from '@/lib/supabase';
 
 type AuthResult = {
   error: string | null;
   requiresEmailConfirmation?: boolean;
-  shouldStartOnboarding?: boolean;
 };
 
 type AuthContextValue = {
-  completeOnboarding: () => void;
   isLoading: boolean;
-  needsOnboarding: boolean;
+  markOnboardingComplete: () => void;
+  onboardingCompleted: boolean;
   session: Session | null;
   createAccount: (email: string, password: string) => Promise<AuthResult>;
   signIn: (email: string, password: string) => Promise<AuthResult>;
@@ -25,8 +25,34 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  // Temporary until onboarding completion is stored in the user's Supabase profile.
-  const [needsOnboarding, setNeedsOnboarding] = useState(false);
+  const [onboardingCompleted, setOnboardingCompleted] = useState(false);
+  const hydrationRequestId = useRef(0);
+
+  async function hydrateSession(nextSession: Session | null) {
+    const requestId = ++hydrationRequestId.current;
+    setSession(nextSession);
+
+    if (!nextSession) {
+      setOnboardingCompleted(false);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const profile = await getOrCreateOnboardingProfile(nextSession.user.id);
+      if (requestId !== hydrationRequestId.current) return;
+
+      setOnboardingCompleted(profile.onboardingCompleted);
+    } catch {
+      if (requestId !== hydrationRequestId.current) return;
+
+      setOnboardingCompleted(false);
+    } finally {
+      if (requestId === hydrationRequestId.current) setIsLoading(false);
+    }
+  }
 
   useEffect(() => {
     let isMounted = true;
@@ -36,8 +62,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       .then(({ data }) => {
         if (!isMounted) return;
 
-        setSession(data.session);
-        setIsLoading(false);
+        void hydrateSession(data.session);
       })
       .catch(() => {
         if (isMounted) setIsLoading(false);
@@ -46,11 +71,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
     const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!isMounted) return;
 
-      setSession(nextSession);
-      setIsLoading(false);
-
-      if (event === 'SIGNED_OUT') {
-        setNeedsOnboarding(false);
+      if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
+        void hydrateSession(nextSession);
+      } else {
+        setSession(nextSession);
       }
     });
 
@@ -86,12 +110,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
       if (error) return { error: error.message };
 
-      setSession(data.session);
-      setNeedsOnboarding(true);
+      await hydrateSession(data.session);
       return {
         error: null,
         requiresEmailConfirmation: Boolean(data.user && !data.session),
-        shouldStartOnboarding: Boolean(data.session),
       };
     } catch {
       return { error: 'Unable to create your account. Check your connection and try again.' };
@@ -104,8 +126,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
       if (error) return { error: error.message };
 
-      setSession(data.session);
-      return { error: null, shouldStartOnboarding: needsOnboarding };
+      await hydrateSession(data.session);
+      return { error: null };
     } catch {
       return { error: 'Unable to sign in. Check your connection and try again.' };
     }
@@ -117,24 +139,24 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
       if (error) return { error: error.message };
 
-      setSession(null);
+      await hydrateSession(null);
       return { error: null };
     } catch {
       return { error: 'Unable to sign out. Check your connection and try again.' };
     }
   }
 
-  function completeOnboarding() {
-    setNeedsOnboarding(false);
+  function markOnboardingComplete() {
+    setOnboardingCompleted(true);
   }
 
   return (
     <AuthContext.Provider
       value={{
-        completeOnboarding,
         createAccount,
         isLoading,
-        needsOnboarding,
+        markOnboardingComplete,
+        onboardingCompleted,
         session,
         signIn,
         signOut,

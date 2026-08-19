@@ -5,7 +5,7 @@ import { colors } from '@/constants/theme';
 import { useAuth } from '@/providers/auth-provider';
 
 export default function AppEntryRoute() {
-  const { isLoading, needsOnboarding, session } = useAuth();
+  const { isLoading, onboardingCompleted, session } = useAuth();
 
   if (isLoading) {
     return (
@@ -17,7 +17,7 @@ export default function AppEntryRoute() {
 
   if (!session) return <Redirect href="/create-account" />;
 
-  return <Redirect href={needsOnboarding ? '/province-territory' : '/ask-uncovr'} />;
+  return <Redirect href={onboardingCompleted ? '/ask-uncovr' : '/province-territory'} />;
 }
 
 const styles = StyleSheet.create({

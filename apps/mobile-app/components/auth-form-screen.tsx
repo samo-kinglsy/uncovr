@@ -72,7 +72,7 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
       return;
     }
 
-    router.replace(result.shouldStartOnboarding ? '/province-territory' : '/ask-uncovr');
+    router.replace('/');
   }
 
   if (isAwaitingEmailConfirmation) {
