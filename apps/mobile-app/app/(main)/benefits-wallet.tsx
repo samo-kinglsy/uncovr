@@ -143,16 +143,30 @@ function BenefitRow({ benefit, expanded, last, onPress }: {
     <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={onPress}
       style={({ pressed }) => [styles.benefitRow, pressed && styles.rowPressed]}>
       <View style={styles.benefitCopy}>
-        <Text style={styles.benefitName}>{benefit.featureTypeName}</Text>
+        <Text style={styles.benefitName}>{benefit.displayName}</Text>
         <View style={styles.attribution}><Ionicons color={colors.gold} name="card-outline" size={14} />
           <Text style={styles.attributionText}>{benefit.cardName}</Text></View>
       </View>
       <Ionicons color={colors.primaryBlack} name={expanded ? 'chevron-up' : 'chevron-down'} size={18} />
     </Pressable>
     {expanded && <View style={styles.detail}>
-      <Text style={styles.detailSummary}>{benefit.summary ?? 'Verified benefit information is available for this card.'}</Text>
+      <Text style={styles.detailSummary}>{benefit.displaySummary ?? 'Verified benefit information is available for this card.'}</Text>
+      {benefit.importantItems.length > 0 && (
+        <View style={styles.importantItems}>
+          <Text style={styles.importantItemsTitle}>Important conditions and limits</Text>
+          <Text style={styles.importantItemsNote}>Not a complete list of terms.</Text>
+          <View style={styles.importantItemsList}>
+            {benefit.importantItems.map((item) => (
+              <View key={item.id} style={styles.importantItem}>
+                <Text style={styles.importantItemBullet}>{'\u2022'}</Text>
+                <Text style={styles.importantItemText}>{item.text}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
       <View style={styles.attribution}><Ionicons color={colors.gold} name="checkmark-circle-outline" size={18} />
-        <Text style={styles.attributionText}>Verified benefit record</Text></View>
+        <Text style={styles.attributionText}>Verified benefit information</Text></View>
     </View>}
   </View>;
 }
@@ -186,7 +200,7 @@ function groupBenefits(benefits: VerifiedCardBenefit[]) {
   return [...grouped.values()]
     .sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999) || a.name.localeCompare(b.name))
     .map((category) => ({ ...category, benefits: category.benefits.sort((a, b) =>
-      a.featureTypeName.localeCompare(b.featureTypeName) || a.cardName.localeCompare(b.cardName)) }));
+      a.displayName.localeCompare(b.displayName) || a.cardName.localeCompare(b.cardName)) }));
 }
 
 function formatCount(count: number, noun: string) { return `${count} ${noun}${count === 1 ? '' : 's'}`; }
@@ -219,6 +233,13 @@ const styles = StyleSheet.create({
   attributionText: { color: colors.secondaryBlack, fontSize: typography.sizes.caption },
   detail: { backgroundColor: colors.warmOffWhite, gap: spacing.md, padding: spacing.md },
   detailSummary: { color: colors.primaryBlack, fontSize: typography.sizes.body, fontWeight: typography.weights.semibold, lineHeight: typography.lineHeights.body },
+  importantItems: { gap: spacing.xs },
+  importantItemsTitle: { color: colors.primaryBlack, fontSize: typography.sizes.body, fontWeight: typography.weights.semibold, lineHeight: typography.lineHeights.body },
+  importantItemsNote: { color: colors.secondaryBlack, fontSize: typography.sizes.caption, lineHeight: typography.lineHeights.caption },
+  importantItemsList: { gap: spacing.sm, paddingTop: spacing.xs },
+  importantItem: { alignItems: 'flex-start', flexDirection: 'row', gap: spacing.sm },
+  importantItemBullet: { color: colors.gold, fontSize: typography.sizes.body, lineHeight: typography.lineHeights.body },
+  importantItemText: { color: colors.secondaryBlack, flex: 1, fontSize: typography.sizes.body, lineHeight: typography.lineHeights.body },
   messageCard: { alignItems: 'center', backgroundColor: colors.warmOffWhite, borderRadius: borderRadii.lg, gap: spacing.sm, padding: spacing.lg },
   messageTitle: { color: colors.primaryBlack, fontSize: typography.sizes.subtitle, fontWeight: typography.weights.semibold },
   messageText: { color: colors.secondaryBlack, fontSize: typography.sizes.body, lineHeight: typography.lineHeights.body, textAlign: 'center' },

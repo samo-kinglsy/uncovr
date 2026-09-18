@@ -11,9 +11,19 @@ export type VerifiedCardBenefit = {
   featureId: string;
   featureTypeCode: string;
   featureTypeName: string;
+  hasVerifiedPresentation: boolean;
+  importantItems: BenefitPresentationItem[];
   issuerName: string;
   summary: string | null;
+  displayName: string;
+  displaySummary: string | null;
   verificationStatus: 'VERIFIED';
+};
+
+export type BenefitPresentationItem = {
+  id: string;
+  text: string;
+  type: 'CONDITION' | 'LIMITATION';
 };
 
 export type BenefitsWalletData = {
@@ -50,10 +60,27 @@ type CardVersionRow = {
   status: string;
 };
 
+type PresentationItemRow = {
+  id: string;
+  item_type: 'CONDITION' | 'LIMITATION';
+  plain_language_text: string;
+  sort_order: number;
+  verification_status: string;
+};
+
+type PresentationRow = {
+  id: string;
+  items: PresentationItemRow | PresentationItemRow[] | null;
+  plain_language_summary: string;
+  short_name: string | null;
+  verification_status: string;
+};
+
 type CardFeatureRow = {
   card_version: CardVersionRow | CardVersionRow[] | null;
   feature_type: FeatureTypeRow | FeatureTypeRow[] | null;
   id: string;
+  presentation: PresentationRow | PresentationRow[] | null;
   summary: string | null;
   verification_status: string;
 };
@@ -81,6 +108,19 @@ const featureSelection = `
       code,
       name,
       sort_order
+    )
+  ),
+  presentation:card_feature_presentations (
+    id,
+    short_name,
+    plain_language_summary,
+    verification_status,
+    items:card_feature_presentation_items (
+      id,
+      item_type,
+      plain_language_text,
+      sort_order,
+      verification_status
     )
   )
 `;
@@ -116,6 +156,10 @@ function mapBenefitRow(row: CardFeatureRow): VerifiedCardBenefit {
   const issuer = firstRelatedRow(card?.issuer ?? null);
   const featureType = firstRelatedRow(row.feature_type);
   const category = firstRelatedRow(featureType?.category ?? null);
+  const presentationCandidate = firstRelatedRow(row.presentation);
+  const presentation = presentationCandidate?.verification_status === 'VERIFIED'
+    ? presentationCandidate
+    : null;
 
   if (!cardVersion || !card || !issuer || !featureType || !category) {
     throw new Error(`Card feature ${row.id} is missing display metadata.`);
@@ -135,8 +179,18 @@ function mapBenefitRow(row: CardFeatureRow): VerifiedCardBenefit {
     featureId: row.id,
     featureTypeCode: featureType.code,
     featureTypeName: featureType.name,
+    hasVerifiedPresentation: Boolean(presentation),
+    importantItems: presentation
+      ? relatedRows(presentation.items)
+          .filter(({ verification_status }) => verification_status === 'VERIFIED')
+          .sort((a, b) => a.sort_order - b.sort_order)
+          .slice(0, 4)
+          .map((item) => ({ id: item.id, text: item.plain_language_text, type: item.item_type }))
+      : [],
     issuerName: issuer.name,
     summary: row.summary,
+    displayName: presentation?.short_name?.trim() || featureType.name,
+    displaySummary: presentation?.plain_language_summary || row.summary,
     verificationStatus: 'VERIFIED',
   };
 }
@@ -145,4 +199,10 @@ function firstRelatedRow<Row>(value: Row | Row[] | null): Row | null {
   if (Array.isArray(value)) return value[0] ?? null;
 
   return value;
+}
+
+function relatedRows<Row>(value: Row | Row[] | null): Row[] {
+  if (!value) return [];
+
+  return Array.isArray(value) ? value : [value];
 }
