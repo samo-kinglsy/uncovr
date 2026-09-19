@@ -3,6 +3,7 @@ import { describe, test } from 'node:test';
 
 import { prepareAskEvidencePackage } from '../evidence.ts';
 import { classifyAskIntent, extractSafeScenarioInputs } from '../intent.ts';
+import { addSuppliedInput, getNextFollowUp } from '../ui.ts';
 
 import type {
   AskCardFeature,
@@ -54,6 +55,54 @@ describe('deterministic intent classification', () => {
     const result = classifyAskIntent('Do I have dental insurance?');
     assert.equal(result.resolution, 'UNRECOGNIZED');
     assert.deepEqual(result.candidateFeatureTypeCodes, []);
+  });
+
+  const rentalScenarios = [
+    ['I rented a car and got in an accident. Does my card cover the damage?', 'EVALUATE'],
+    ['I crashed my rental car.', 'DISCOVER'],
+    ['I damaged a rental car.', 'DISCOVER'],
+    ['I got into an accident in a rental.', 'DISCOVER'],
+    ['Will my card pay for damage to a rental?', 'EVALUATE'],
+    ['Someone hit my rental car.', 'DISCOVER'],
+    ['The rental car was stolen.', 'DISCOVER'],
+    ['Does my card protect me when I rent a car?', 'EVALUATE'],
+    ["Do I need the rental company's insurance?", 'EVALUATE'],
+    ["Can I decline the rental company's damage waiver?", 'EVALUATE'],
+  ] as const;
+
+  for (const [question, kind] of rentalScenarios) {
+    test(`recognizes rental loss scenario: ${question}`, () => {
+      const result = classifyAskIntent(question);
+      assert.equal(result.resolution, 'RESOLVED');
+      assert.equal(result.kind, kind);
+      assert.deepEqual(result.candidateFeatureTypeCodes, ['rental_car_collision_damage']);
+    });
+  }
+
+  const unrelatedAutomotiveQuestions = [
+    'I crashed my own car.',
+    'Does my card cover repairs to my car?',
+    'Someone damaged my vehicle.',
+    'I was in an accident.',
+    'Do I have roadside assistance?',
+    'What is my car insurance deductible?',
+  ] as const;
+
+  for (const question of unrelatedAutomotiveQuestions) {
+    test(`does not infer rental coverage from generic automotive language: ${question}`, () => {
+      const result = classifyAskIntent(question);
+      assert.equal(result.resolution, 'UNRECOGNIZED');
+      assert.deepEqual(result.candidateFeatureTypeCodes, []);
+    });
+  }
+
+  test('financing a car follows the supported financing intent without inferring rental coverage', () => {
+    for (const question of ['Can I finance a car?', 'Can I finance a rental car?']) {
+      const result = classifyAskIntent(question);
+      assert.equal(result.resolution, 'RESOLVED');
+      assert.equal(result.kind, 'EVALUATE');
+      assert.deepEqual(result.candidateFeatureTypeCodes, ['installment_financing']);
+    }
   });
 });
 
@@ -189,6 +238,40 @@ describe('structured evidence packages', () => {
       result.evaluatedFeatures.map(({ card: owner, evaluation }) => [owner.id, evaluation.status]),
       [['rbc', 'CONDITIONS_SATISFIED'], ['second', 'CONDITIONS_SATISFIED']]
     );
+  });
+
+  test('progressive rental reevaluation uses accumulated inputs and stops on terminal outcomes', () => {
+    const question = 'I rented a car and got in an accident. Does my card cover the damage?';
+    const featureData = data([rbc], [rentalFeature(rbc)]);
+    const initial = build(question, featureData);
+    assert.equal(
+      getNextFollowUp(initial.outcome, initial.evaluatedFeatures)?.definition.code,
+      'payment_percentage'
+    );
+
+    const withPayment = addSuppliedInput({}, 'payment_percentage', 100);
+    const afterPayment = build(question, featureData, withPayment);
+    assert.deepEqual(afterPayment.evaluatedFeatures[0].inputs.map(({ code, value }) => [code, value]), [
+      ['payment_percentage', 100],
+    ]);
+    assert.equal(
+      getNextFollowUp(afterPayment.outcome, afterPayment.evaluatedFeatures)?.definition.code,
+      'rental_duration_days'
+    );
+
+    const failed = build(question, featureData, { payment_percentage: 50 });
+    assert.equal(failed.outcome, 'CONDITION_NOT_SATISFIED');
+    assert.equal(getNextFollowUp(failed.outcome, failed.evaluatedFeatures), null);
+
+    const satisfied = build(question, featureData, {
+      authorized_rental_driver: true,
+      payment_percentage: 100,
+      rental_agency_cdw_declined: true,
+      rental_duration_days: 10,
+      vehicle_value: 60_000,
+    });
+    assert.equal(satisfied.outcome, 'CONDITIONS_SATISFIED');
+    assert.equal(getNextFollowUp(satisfied.outcome, satisfied.evaluatedFeatures), null);
   });
 
   test('stale evidence creates a traceable warning and review outcome', () => {

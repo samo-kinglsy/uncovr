@@ -275,7 +275,7 @@ const featureSelection = `
     operator,
     parent_group_id,
     description,
-    members:rule_group_members (
+    members:rule_group_members!rule_group_members_rule_group_id_fkey (
       id,
       rule_id,
       child_group_id,

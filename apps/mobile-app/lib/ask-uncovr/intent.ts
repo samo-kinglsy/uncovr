@@ -30,7 +30,7 @@ type AliasEntry = {
 export const pilotFeatureAliases: readonly AliasEntry[] = [
   { code: 'travel_emergency_medical', aliases: ['emergency medical insurance', 'travel medical insurance', 'emergency medical coverage', 'travel medical coverage'] },
   { code: 'travel_accident', aliases: ['travel accident insurance', 'travel accident coverage', 'common carrier accident insurance', 'common carrier accident coverage'] },
-  { code: 'rental_car_collision_damage', aliases: ['rental car insurance', 'rental vehicle insurance', 'rental car coverage', 'rental vehicle coverage', 'rental car damage', 'rental vehicle damage', 'collision damage waiver', 'rental cdw', 'rental ldw', 'rental car', 'rental vehicle'] },
+  { code: 'rental_car_collision_damage', aliases: ['rental car insurance', 'rental vehicle insurance', 'rental car coverage', 'rental vehicle coverage', 'rental car damage', 'rental vehicle damage', 'collision damage waiver', 'rental cdw', 'rental ldw'] },
   { code: 'trip_cancellation', aliases: ['trip cancellation insurance', 'trip cancellation coverage', 'cancelled trip insurance', 'canceled trip insurance', 'trip cancellation'] },
   { code: 'trip_interruption', aliases: ['trip interruption insurance', 'trip interruption coverage', 'interrupted trip insurance', 'trip interruption'] },
   { code: 'baggage_delay', aliases: ['baggage delay insurance', 'baggage delay coverage', 'delayed baggage', 'baggage delayed', 'luggage delay', 'delayed luggage'] },
@@ -45,11 +45,17 @@ export const pilotFeatureAliases: readonly AliasEntry[] = [
 
 export function classifyAskIntent(question: string): AskIntentClassification {
   const normalizedQuestion = normalizeText(question);
-  const matches = pilotFeatureAliases.flatMap(({ aliases, code }) =>
+  const aliasMatches = pilotFeatureAliases.flatMap(({ aliases, code }) =>
     aliases
       .filter((alias) => containsPhrase(normalizedQuestion, alias))
       .map((alias) => ({ alias, code }))
   );
+  const matches = matchesRentalCarScenario(normalizedQuestion)
+    ? [
+        ...aliasMatches,
+        { alias: 'rental vehicle scenario', code: 'rental_car_collision_damage' as const },
+      ]
+    : aliasMatches;
   const codes = [...new Set(matches.map(({ code }) => code))];
 
   if (codes.length === 0) {
@@ -163,7 +169,7 @@ function classifyKind(question: string): AskIntentKind {
   if (/\b(source|sources|citation|citations|where (?:did|does|is|are).*(?:come from|from)|official terms|proof)\b/.test(question)) return 'SOURCES';
   if (/\b(max|maximum|limit|limits|how much|how many|how long)\b/.test(question)) return 'LIMITS';
   if (/\b(how does|how do|explain|what is|tell me about)\b/.test(question)) return 'EXPLAIN';
-  if (/\b(can i|could i|am i|would i|will i|does my card|do my cards|eligible|qualify|what happens if)\b/.test(question)) {
+  if (/\b(can i|could i|am i|would i|will i|will my card|does my card|do my cards|do i need|eligible|qualify|what happens if)\b/.test(question)) {
     return /\bdo i have\b/.test(question) ? 'DISCOVER' : 'EVALUATE';
   }
   if (/\b(do i have|which (?:of )?my cards?|is there)\b/.test(question)) return 'DISCOVER';
@@ -187,6 +193,23 @@ function normalizeText(value: string): string {
 
 function containsPhrase(question: string, phrase: string): boolean {
   return (` ${question} `).includes(` ${normalizeText(phrase)} `);
+}
+
+function matchesRentalCarScenario(question: string): boolean {
+  const hasRentalVehicleContext = [
+    /\brental (?:car|vehicle)\b/,
+    /\b(?:rent|rented|renting) (?:a |an |the )?(?:car|vehicle)\b/,
+    /\brental companys?\b/,
+    /\b(?:in|to) (?:a |an |the |my |your |their |our )?rental\b/,
+  ].some((pattern) => pattern.test(question));
+  const hasBenefitLossOrWaiverContext = [
+    /\b(?:crash|crashed|crashes|crashing|collision|accident|hit)\b/,
+    /\b(?:damage|damaged|damages|damaging|stolen|theft)\b/,
+    /\b(?:cover|covered|covers|covering|coverage|protect|protected|protects|protecting|protection|insurance|pay|paid|pays|paying|payment)\b/,
+    /\b(?:damage waiver|cdw|ldw|decline|declined|declines|declining)\b/,
+  ].some((pattern) => pattern.test(question));
+
+  return hasRentalVehicleContext && hasBenefitLossOrWaiverContext;
 }
 
 function addSingleMeasurement(
